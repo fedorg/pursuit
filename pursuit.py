@@ -150,7 +150,7 @@ def get_slices(img_path: str, crop = True, exclude_cars = True) -> list[np.ndarr
 
 from download import recall_furtrack_data_by_embedding_id
 
-def get_closest_rows(index: faiss.Index, query: np.ndarray, n: int = 3):
+def get_closest_rows(index: faiss.Index, query: np.ndarray, n: int = 3) -> list[dict]:
     eids = get_closest_embeddings(index, query, n)
     # return top n rows
     rows = [recall_furtrack_data_by_embedding_id(eid) for eid in eids[0]]
@@ -164,7 +164,7 @@ def get_closest_rows(index: faiss.Index, query: np.ndarray, n: int = 3):
     # return [r for r in sorted_res[:n]]
 
 
-def get_closest_to_file(index: faiss.Index, path: str, n: int = 5):
+def get_closest_to_file(index: faiss.Index, path: str, n: int = 5) -> list[dict]:
     query = generate_embedding(path).data.numpy()
     return get_closest_rows(index, query, n)
 
@@ -172,6 +172,7 @@ def get_closest_to_file(index: faiss.Index, path: str, n: int = 5):
 
 def batch_vectorize_images(image_folder: str, embed_folder: str):
     print("vectorizing...")
+    os.makedirs(image_folder, exist_ok=True)
     files = (f for f in os.listdir(image_folder) if f.endswith(".jpg"))
     for f in files:
         vectorize_image(f"{image_folder}/{f}", embed_folder)
@@ -180,6 +181,7 @@ from download import recall_furtrack_data
 
 def batch_reindex_embeddings(embed_folder: str):
     print("reindexing...")
+    os.makedirs(embed_folder, exist_ok=True)
     emb_files = (f for f in os.listdir(embed_folder) if f.endswith(".bin"))
     post_ids = (os.path.splitext(f)[0] for f in emb_files)
     index = load_embedding_db(N_DIMS)
