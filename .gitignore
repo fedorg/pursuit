@@ -1,0 +1,7 @@
+datasets
+furtrack_images
+*.pt
+*.bak
+embeddings
+*.pyc
+.python-version
