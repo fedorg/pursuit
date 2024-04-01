@@ -1,0 +1,6 @@
+faiss-cpu==1.8.0
+numpy==1.26.4
+requests==2.31.0
+torch==2.2.0
+torchvision==0.17.0
+ultralytics==8.1.17
