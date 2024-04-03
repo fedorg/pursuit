@@ -45,7 +45,7 @@ def generate_embedding_from_image(img):
 
 # %%
 
-def load_embedding_db(n_dims: int) -> faiss.IndexFlatL2:
+def load_embedding_db(n_dims: int = N_DIMS) -> faiss.IndexFlatL2:
     if os.path.exists("faiss.index"):
         print("read faiss.index")
         index = faiss.read_index("faiss.index")
@@ -86,7 +86,6 @@ def vectorize_image(image_path: str, embed_folder: str):
         print(f"Embedding {post_id} already exists")
         embedding = np.fromfile(emb_path, dtype=np.float32)
     else:
-        print(f"Vectorizing {post_id}...")
         os.makedirs(embed_folder, exist_ok=True)
         embedding = generate_embedding(image_path).data.numpy()
         with open(f"{embed_folder}/{post_id}.bin", "wb") as f:
@@ -174,7 +173,7 @@ def get_closest_to_file(index: faiss.Index, path: str, n: int = 5) -> list[dict]
     return get_closest_rows(index, query, n)
 
 def detect_characters(path: str, n: int) -> list[dict]:
-    index = load_embedding_db(N_DIMS)
+    index = load_embedding_db()
     query = generate_embedding(path).data.numpy()
     return get_closest_rows(index, query, n)
 
@@ -198,7 +197,7 @@ def batch_index_embeddings(embed_folder: str, new_index=False):
     if new_index:
         print("removing faiss.index")
         os.path.exists("faiss.index") and os.remove("faiss.index")
-    index = load_embedding_db(N_DIMS)
+    index = load_embedding_db()
     metas = (recall_furtrack_data_by_id(pid) for pid in post_ids)
     metas = (m for m in metas if m is not None and m["char"])
     if not new_index:
