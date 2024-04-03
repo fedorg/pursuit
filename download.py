@@ -4,6 +4,7 @@ import json
 import os
 from typing import Iterable
 from itertools import islice
+import random
 
 import requests
 
@@ -21,6 +22,16 @@ def get_url(url):
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
         },
     )
+
+
+def get_json(url):
+    r = get_url(url)
+    if r.status_code != 200:
+        print(f"Failed to get {url}")
+        print(r.text)
+        raise Exception(f"status_code: {r.status_code}, {r.url}")
+    j = r.json()
+    return j
 
 
 def make_requests(urls: list[str], max_requests: int = 20, verbose: bool = True):
@@ -249,9 +260,9 @@ def download_posts(post_ids_: Iterable[int], image_folder: str, batch_size: int)
             break
         metas = get_furtrack_posts(ids)
         store_furtrack_data(metas)
-        failed = [m["post_id"] for m in metas if not m["url"]]
-        if failed:
-            print(f"{failed} failed to get metadata")
+        bad_metas = [m["post_id"] for m in metas if not m["url"]]
+        if len(bad_metas):
+            print(f"{bad_metas} bad posts")
         valid = [m for m in metas if m["url"] and m["char"]]
         print(f"{len(valid)} got metadata")
         skip = [
@@ -282,28 +293,22 @@ def get_recent_posts(page=0):
     url = "https://solar.furtrack.com/get/all"
     if page:
         url += f"/{page}"
-    j = get_url(url).json()
+    j = get_json(url)
     return [p["postId"] for p in j["posts"]]
 
 
-def get_character_posts(char: str):
-    # https://solar.furtrack.com/get/index/1:placid
-
+def get_character_post_ids(char: str) -> list[int]:
     url = f"https://solar.furtrack.com/get/index/1:{char}"
-    j = get_url(url).json()
-    # sort by newest first
-    return sorted([p["postId"] for p in j["posts"]], reverse=True)
+    j = get_json(url)
+    post_ids = [int(p["postId"]) for p in j["posts"]]
+    random.shuffle(post_ids)
+    return post_ids
 
 
 def download_character_list():
     # https://solar.furtrack.com/get/tags/all
     url = "https://solar.furtrack.com/get/tags/all"
-    r = get_url(url)
-    if r.status_code != 200:
-        print(r.url)
-        print(r.text)
-        exit(-1)
-    j = r.json()
+    j = get_json(url)
     tags = j["tags"]
     char_tags = [
         t["tagName"].removeprefix("1:")
@@ -314,20 +319,30 @@ def download_character_list():
 
 
 def download_character_posts(char: str, image_folder: str, batch_size: int):
-    post_ids = get_character_posts(char)
+    post_ids = get_character_post_ids(char)
     download_posts(post_ids, image_folder, batch_size)
 
 
 def download_all_characters(image_folder: str, batch_size: int):
     char_tags = download_character_list()
     print(f"Downloading {len(char_tags)} characters...")
-    import random
 
     random.seed(42)
     random.shuffle(char_tags)
-    for char in char_tags:
-        print(f"Downloading {char}")
+    for i, char in enumerate(char_tags):
+        print(f"Downloading character ({i}/{len(char_tags)}): {char}")
         download_character_posts(char, image_folder, batch_size)
+
+
+def ingest_posts(post_ids: list[int], image_folder: str, embed_folder: str):
+    from pursuit import index_post, load_embedding_db
+
+    metas = get_furtrack_posts(post_ids)
+    store_furtrack_data(metas)
+    metas = [m for m in metas if m["url"] and m["char"]]
+    download_images([(m["url"], m["post_id"]) for m in metas], image_folder)
+    index = load_embedding_db()
+    index_post(index, metas, image_folder, embed_folder, save_every=1, total=1)
 
 
 if __name__ == "__main__":
