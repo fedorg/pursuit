@@ -14,7 +14,6 @@ import torchvision.transforms as T
 import torchvision.models as models
 
 # print(*model.children())
-
 N_DIMS = 25088
 
 def generate_embedding(img_path: str):
@@ -23,8 +22,8 @@ def generate_embedding(img_path: str):
     return generate_embedding_from_image(img)
 
 def generate_embedding_from_image(img):
-    model = models.vgg16(pretrained=True) # weights=VGG16_Weights.DEFAULT
-    print("here")
+    # import faulthandler; faulthandler.enable()
+    model = models.vgg16(weights=models.VGG16_Weights.DEFAULT)
     # remove the last layers
     # model_embed = nn.Sequential(*list(model.children())[:-1])
     model_embed = model.features
@@ -96,11 +95,14 @@ def vectorize_image(image_path: str, embed_folder: str):
 
 from download import store_furtrack_data
 
-def ingest_post(index: faiss.Index, metas: list[dict], image_folder: str, embed_folder: str):
+def index_post(index: faiss.Index, metas: list[dict], image_folder: str, embed_folder: str, save_every: int = 1):
     for i, m in enumerate(metas):
         post_id = m["post_id"]
         print(f"processing {post_id}")
         embedding = vectorize_image(f"{image_folder}/{post_id}.jpg", embed_folder)
+        if not embedding:
+            print(f"Failed to vectorize {post_id}")
+            continue
         embedding_id = insert_embedding(index, embedding)
         print(f"embedding_id: {embedding_id}")
         m["embedding_id"] = embedding_id
@@ -108,43 +110,43 @@ def ingest_post(index: faiss.Index, metas: list[dict], image_folder: str, embed_
         # store index in a file
         # https://github.com/facebookresearch/faiss/blob/main/demos/demo_ondisk_ivf.py
         # index.train(xt)
-        # if i % 10 == 0:
-        save_embedding_db(index)
+        if i % save_every == 0:
+            save_embedding_db(index)
 
 # %%
 # get horizontal slices of each object
 from PIL import Image
 import numpy as np
-from ultralytics import YOLO
+# from ultralytics import YOLO
 
-def get_slices(img_path: str, crop = True, exclude_cars = True) -> list[np.ndarray]:
-    model = YOLO("yolov8n-seg.pt")
-    results = model(img_path)
-    xyxy = results[0].boxes.xyxy
-    boxes = results[0].boxes
-    # print(dir(results[0]))
-    img = Image.open(img_path)
-    slices = []
-    if len(xyxy) == 0:
-        return [np.array(img)]
-    # sort boxes by largest width
-    box_coords = sorted(zip(boxes, xyxy), key=lambda bc: bc[1][2] - bc[1][0], reverse=True)
-    for box, coords in box_coords:
-        name = model.names[int(box.cls)]
-        print(name)
-        if exclude_cars and name in ["car", "truck", "bus"]:
-            continue
-        x1, y1, x2, y2 = map(int, coords.floor())
-        # get image size
-        w, h = img.size
-        if crop:
-            cropped = img.crop((x1, y1, x2, y2))
-        else:
-            cropped = img.crop((x1, 0, x2, h))
-        # plt.imshow(cropped)
-        # plt.show()
-        slices.append(np.array(cropped))
-    return slices
+# def get_slices(img_path: str, crop = True, exclude_cars = True) -> list[np.ndarray]:
+#     model = YOLO("yolov8n-seg.pt")
+#     results = model(img_path)
+#     xyxy = results[0].boxes.xyxy
+#     boxes = results[0].boxes
+#     # print(dir(results[0]))
+#     img = Image.open(img_path)
+#     slices = []
+#     if len(xyxy) == 0:
+#         return [np.array(img)]
+#     # sort boxes by largest width
+#     box_coords = sorted(zip(boxes, xyxy), key=lambda bc: bc[1][2] - bc[1][0], reverse=True)
+#     for box, coords in box_coords:
+#         name = model.names[int(box.cls)]
+#         print(name)
+#         if exclude_cars and name in ["car", "truck", "bus"]:
+#             continue
+#         x1, y1, x2, y2 = map(int, coords.floor())
+#         # get image size
+#         w, h = img.size
+#         if crop:
+#             cropped = img.crop((x1, y1, x2, y2))
+#         else:
+#             cropped = img.crop((x1, 0, x2, h))
+#         # plt.imshow(cropped)
+#         # plt.show()
+#         slices.append(np.array(cropped))
+#     return slices
 
 # %%
 
@@ -168,6 +170,11 @@ def get_closest_to_file(index: faiss.Index, path: str, n: int = 5) -> list[dict]
     query = generate_embedding(path).data.numpy()
     return get_closest_rows(index, query, n)
 
+def detect_characters(path: str, n: int) -> list[dict]:
+    index = load_embedding_db(N_DIMS)
+    query = generate_embedding(path).data.numpy()
+    return get_closest_rows(index, query, n)
+
 # %%
 
 def batch_vectorize_images(image_folder: str, embed_folder: str):
@@ -177,16 +184,19 @@ def batch_vectorize_images(image_folder: str, embed_folder: str):
     for f in files:
         vectorize_image(f"{image_folder}/{f}", embed_folder)
 
-from download import recall_furtrack_data
+from download import recall_furtrack_data_by_id
 
 def batch_reindex_embeddings(embed_folder: str):
     print("reindexing...")
     os.makedirs(embed_folder, exist_ok=True)
     emb_files = (f for f in os.listdir(embed_folder) if f.endswith(".bin"))
     post_ids = (os.path.splitext(f)[0] for f in emb_files)
+    os.path.exists("faiss.index") and os.remove("faiss.index")
     index = load_embedding_db(N_DIMS)
-    metas = (m for m in (recall_furtrack_data(pid) for pid in post_ids) if m is not None and m["char"])
-    ingest_post(index, metas, image_folder, embed_folder)
+    metas = (recall_furtrack_data_by_id(pid) for pid in post_ids)
+    metas = (m for m in metas if m is not None and m["char"])
+    index_post(index, metas, image_folder, embed_folder, save_every=100)
+    save_embedding_db(index)
     # print(len(metas))
 
 

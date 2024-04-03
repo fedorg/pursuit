@@ -5,3 +5,4 @@ furtrack_images
 embeddings
 *.pyc
 .python-version
+.env

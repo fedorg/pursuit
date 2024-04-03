@@ -2,16 +2,20 @@
 import concurrent.futures
 import json
 import os
+from typing import Iterable
+from itertools import islice
 
 import requests
+
+MAX_CHAR_ENTRIES = 10
 
 
 def get_url(url):
     return requests.get(
         url,
         cookies={
-            "cf_chl_3": "5e14c56505bec0e",
-            "cf_clearance": "vX7pPf0iCsy1JJpBeScQZnVX9jJO4N8OP66ub2mnboM-1711844877-1.0.1.1-h3qYEPgiN0mdPnDqgpElKUd49PnpajNI_.KgRoWNd2vguOeCrAxoWs0A1TT_dH78AS5a.Z.5nsVEbbZUJum4vw",
+            "cf_chl_3": "b3eff072548bedf",
+            "cf_clearance": "P1A3oWfv9ME6IVwHdZVkSYgECpc2CctKTR9KX55zboU-1712087739-1.0.1.1-2uP9FvKM8PbcGFr4v26UhwMIjp2dPXfZ.jeVh8AwQc89c6_Q0HS9ErFRBwoTmb8WerfA.UPkLBEgPL8LWGTHAg",
         },
         headers={
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
@@ -101,6 +105,8 @@ def download_images(urls_names: list[tuple[str, str]], folder: str):
 
     img_urls = [u for u, n in urls_names]
     names = [n for u, n in urls_names]
+    if len(img_urls):
+        print(f"Downloading {len(img_urls)} images")
     rs = make_requests(img_urls, verbose=False)
     for name, r in zip(names, rs):
         if r.status_code == 200:
@@ -110,7 +116,7 @@ def download_images(urls_names: list[tuple[str, str]], folder: str):
             print(f"Failed to download {name}.jpg")
 
 
-def get_furtrack_data(post_ids: list[int]):
+def get_furtrack_posts(post_ids: list[int]):
     urls = [f"https://solar.furtrack.com/get/p/{i}" for i in post_ids]
     jsons = [r.json() for r in make_requests(urls)]
     mapped = [
@@ -145,9 +151,9 @@ def create_table():
     conn = sqlite3.connect("furtrack.db")
     c = conn.cursor()
     c.execute("""CREATE TABLE furtrack
-                    (post_id text PRIMARY KEY, char text, url text, raw text, embedding_id integer default NULL)""")
+                    (post_id text PRIMARY KEY, char text, url text, raw text, embedding_id integer default NULL, date_modified timestamp DEFAULT CURRENT_TIMESTAMP)""")
     # unique constraint
-    c.execute("CREATE UNIQUE INDEX post_id_index ON furtrack (post_id)")
+    # c.execute("CREATE UNIQUE INDEX post_id_index ON furtrack (post_id)")
     c.execute("CREATE UNIQUE INDEX u_embedding_id_index ON furtrack(embedding_id)")
     conn.commit()
     conn.close()
@@ -162,13 +168,14 @@ def store_furtrack_data(dict_list: list[dict]):
             return
         for d in dict_list:
             c.execute(
-                "INSERT OR REPLACE INTO furtrack VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO furtrack VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
                 (
                     d["post_id"],
                     d["char"],
                     d["url"],
                     json.dumps(d["raw"]),
                     d.get("embedding_id", None),
+                    # CURRENT_TIMESTAMP,
                 ),
             )
         conn.commit()
@@ -182,6 +189,7 @@ def store_furtrack_data(dict_list: list[dict]):
         # print("Closing connection")
         conn.close()
 
+
 def row2dict(row):
     if row is None:
         return None
@@ -191,15 +199,27 @@ def row2dict(row):
         "url": row[2],
         "raw": json.loads(row[3]),
         "embedding_id": row[4],
+        "date_modified": row[5],
     }
 
-def recall_furtrack_data(post_id: str):
+
+def recall_furtrack_data_by_id(post_id: str):
     conn = sqlite3.connect("furtrack.db")
     c = conn.cursor()
     c.execute("SELECT * FROM furtrack WHERE post_id=?", (post_id,))
     res = c.fetchone()
     conn.close()
     return row2dict(res)
+
+
+def count_character_entries_in_db(char: str):
+    conn = sqlite3.connect("furtrack.db")
+    c = conn.cursor()
+    c.execute("SELECT count(*) FROM furtrack WHERE char=?", (char,))
+    res = c.fetchone()
+    conn.close()
+    return res[0]
+
 
 def recall_furtrack_data_by_embedding_id(embedding_id: int):
     conn = sqlite3.connect("furtrack.db")
@@ -208,6 +228,7 @@ def recall_furtrack_data_by_embedding_id(embedding_id: int):
     res = c.fetchone()
     conn.close()
     return row2dict(res)
+
 
 # def sqlite_add_column():
 #     conn = sqlite3.connect("furtrack.db")
@@ -218,35 +239,54 @@ def recall_furtrack_data_by_embedding_id(embedding_id: int):
 #     conn.close()
 
 
-def download_and_process_furtrack_data(
-    post_ids: list[int], folder: str, batch_size: int
-):
-    ids = [p for p in post_ids if recall_furtrack_data(str(p)) is None]
-    print(f"Getting {len(ids)}/{len(post_ids)} new posts")
+def download_posts(post_ids_: Iterable[int], image_folder: str, batch_size: int):
+    post_ids = (p for p in post_ids_ if recall_furtrack_data_by_id(str(p)) is None)
+    # print(f"Getting {len(ids)}/{len(post_ids)} new posts")
     # process in batches
-    from itertools import islice
-
-    iter_ids = iter(ids)
-
     while True:
-        ids = list(islice(iter_ids, batch_size))
+        ids = list(islice(post_ids, batch_size))
         if not ids:
             break
-        metas = get_furtrack_data(ids)
-        print(f"{[m['post_id'] for m in metas if not m['url']]} failed to get metadata")
-        print(f"{len([m for m in metas if m['url']])} got metadata")
+        metas = get_furtrack_posts(ids)
         store_furtrack_data(metas)
-        download_images([(m["url"], m["post_id"]) for m in metas if m["url"]], folder)
+        failed = [m["post_id"] for m in metas if not m["url"]]
+        if failed:
+            print(f"{failed} failed to get metadata")
+        valid = [m for m in metas if m["url"] and m["char"]]
+        print(f"{len(valid)} got metadata")
+        skip = [
+            m
+            for m in valid
+            if count_character_entries_in_db(m["char"]) >= MAX_CHAR_ENTRIES
+        ]
+        if len(skip):
+            print(
+                f"Skipping download of {len(skip)} images with seen character entries"
+            )
+            valid = [m for m in valid if m not in skip]
+        download_images([(m["url"], m["post_id"]) for m in valid], image_folder)
+
+
+def batch_download_images(post_ids: Iterable[int], image_folder: str, batch_size: int):
+    metas = (recall_furtrack_data_by_id(str(p)) for p in post_ids)
+    urls_ids = ((m["url"], m["post_id"]) for m in metas if m and m["url"])
+    while True:
+        pairs = list(islice(urls_ids, batch_size))
+        if not pairs:
+            break
+        download_images(pairs, image_folder)
 
 
 if __name__ == "__main__":
     import random
 
     random.seed(42)
-    post_ids = [i for i in random.sample(range(549557), 20000)]
-    print(len(post_ids))
+    num_samples = 40000
+    print(f"Sampling {num_samples} posts")
+    post_ids = (i for i in random.sample(range(549557), num_samples))
 
     create_table()
-    # print(recall_furtrack_data("537727"))
-    # print(recall_furtrack_data("2"))
-    download_and_process_furtrack_data(post_ids, "furtrack_images", batch_size=40)
+    # print(recall_furtrack_data_by_id("537727"))
+    # print(recall_furtrack_data_by_id("2"))
+    download_posts(post_ids, "furtrack_images", batch_size=40)
+    # batch_download_images(post_ids, "furtrack_images", batch_size=40)
