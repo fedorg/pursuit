@@ -190,15 +190,20 @@ def batch_vectorize_images(image_folder: str, embed_folder: str):
 
 from download import recall_furtrack_data_by_id
 
-def batch_reindex_embeddings(embed_folder: str):
-    print("reindexing...")
+def batch_index_embeddings(embed_folder: str, new_index=False):
+    print("indexing...")
     os.makedirs(embed_folder, exist_ok=True)
     emb_files = [f for f in os.listdir(embed_folder) if f.endswith(".bin")]
     post_ids = (os.path.splitext(f)[0] for f in emb_files)
-    os.path.exists("faiss.index") and os.remove("faiss.index")
+    if new_index:
+        print("removing faiss.index")
+        os.path.exists("faiss.index") and os.remove("faiss.index")
     index = load_embedding_db(N_DIMS)
     metas = (recall_furtrack_data_by_id(pid) for pid in post_ids)
     metas = (m for m in metas if m is not None and m["char"])
+    if not new_index:
+        print("adding to existing index...")
+        metas = (m for m in metas if m.get("embedding_id") is None)
     index_post(index, metas, image_folder, embed_folder, save_every=100, total=len(emb_files))
     save_embedding_db(index)
     # print(len(metas))
@@ -217,7 +222,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
 
     image_folder, embed_folder = "furtrack_images", "embeddings"
-    # batch_vectorize_images(image_folder, embed_folder)
-    batch_reindex_embeddings(embed_folder)
+    batch_vectorize_images(image_folder, embed_folder)
+    batch_index_embeddings(embed_folder)
 
     exit(0)
