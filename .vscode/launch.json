@@ -11,9 +11,8 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "env": {
-                "KMP_DUPLICATE_LIB_OK": "TRUE"
-            }
+            "python": "${command:python.interpreterPath}",
+            "envFile": "${workspaceFolder}/.env"
         }
     ]
 }
