@@ -1,4 +1,6 @@
 # import logging
+from dotenv import load_dotenv
+
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
 from telegram.ext import filters, MessageHandler
@@ -15,7 +17,7 @@ from tempfile import NamedTemporaryFile
 
 
 async def photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not isinstance(update.message.effective_attachment, list):
+    if not update.message:
         print("Invalid attachment type", file=sys.stderr)
         return
     attachment = update.message.effective_attachment
@@ -32,8 +34,9 @@ async def photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id, text=f"Error processing image: {e}"
         )
         return
-    characters = {r["char"] for r in rows}
+    characters = [r["char"] for r in rows]
     msg = f"Closest characters: {characters}"
+    print(msg)
     await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
 
 
@@ -45,6 +48,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 if __name__ == "__main__":
+    load_dotenv()
     token = os.environ.get("TG_BOT_TOKEN", "")
     application = ApplicationBuilder().token(token).build()
 
@@ -53,5 +57,5 @@ if __name__ == "__main__":
 
     start_handler = CommandHandler("start", start)
     application.add_handler(start_handler)
-
+    print("Running...")
     application.run_polling()

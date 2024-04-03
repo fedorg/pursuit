@@ -28,3 +28,4 @@ torchvision==0.17.2
 typing_extensions==4.10.0
 urllib3==2.2.1
 wheel==0.42.0
+python-dotenv==1.0.1
