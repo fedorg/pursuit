@@ -72,7 +72,7 @@ def get_closest_embeddings(
 ) -> list[int]:
     vectors = np.array([embedding], dtype=np.float32)
     distances, indices = index.search(vectors, k=top)
-    return indices
+    return list(indices[0])
 
 # %%
 
@@ -95,12 +95,12 @@ def vectorize_image(image_path: str, embed_folder: str):
 
 from download import store_furtrack_data
 
-def index_post(index: faiss.Index, metas: list[dict], image_folder: str, embed_folder: str, save_every: int = 1):
+def index_post(index: faiss.Index, metas: list[dict], image_folder: str, embed_folder: str, save_every: int = 1, total=0):
     for i, m in enumerate(metas):
         post_id = m["post_id"]
-        print(f"processing {post_id}")
+        print(f"processing {post_id} ({i}/{total})")
         embedding = vectorize_image(f"{image_folder}/{post_id}.jpg", embed_folder)
-        if not embedding:
+        if embedding is None:
             print(f"Failed to vectorize {post_id}")
             continue
         embedding_id = insert_embedding(index, embedding)
@@ -154,8 +154,11 @@ from download import recall_furtrack_data_by_embedding_id
 
 def get_closest_rows(index: faiss.Index, query: np.ndarray, n: int = 3) -> list[dict]:
     eids = get_closest_embeddings(index, query, n)
+    print(f"closest eids: {eids}")
     # return top n rows
-    rows = [recall_furtrack_data_by_embedding_id(eid) for eid in eids[0]]
+    rows = [recall_furtrack_data_by_embedding_id(eid) for eid in eids]
+    rows = [r for r in rows if r is not None]
+    print(f'closest posts: {[r["post_id"] for r in rows]}')
     return rows
     # load_embedding = lambda b: np.frombuffer(b, dtype=np.float32)
     # sort by similarity
@@ -180,8 +183,9 @@ def detect_characters(path: str, n: int) -> list[dict]:
 def batch_vectorize_images(image_folder: str, embed_folder: str):
     print("vectorizing...")
     os.makedirs(image_folder, exist_ok=True)
-    files = (f for f in os.listdir(image_folder) if f.endswith(".jpg"))
-    for f in files:
+    files = [f for f in os.listdir(image_folder) if f.endswith(".jpg")]
+    for i, f in enumerate(files):
+        print(f"vectorizing {i}/{len(files)}")
         vectorize_image(f"{image_folder}/{f}", embed_folder)
 
 from download import recall_furtrack_data_by_id
@@ -189,13 +193,13 @@ from download import recall_furtrack_data_by_id
 def batch_reindex_embeddings(embed_folder: str):
     print("reindexing...")
     os.makedirs(embed_folder, exist_ok=True)
-    emb_files = (f for f in os.listdir(embed_folder) if f.endswith(".bin"))
+    emb_files = [f for f in os.listdir(embed_folder) if f.endswith(".bin")]
     post_ids = (os.path.splitext(f)[0] for f in emb_files)
     os.path.exists("faiss.index") and os.remove("faiss.index")
     index = load_embedding_db(N_DIMS)
     metas = (recall_furtrack_data_by_id(pid) for pid in post_ids)
     metas = (m for m in metas if m is not None and m["char"])
-    index_post(index, metas, image_folder, embed_folder, save_every=100)
+    index_post(index, metas, image_folder, embed_folder, save_every=100, total=len(emb_files))
     save_embedding_db(index)
     # print(len(metas))
 
@@ -213,7 +217,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
 
     image_folder, embed_folder = "furtrack_images", "embeddings"
-    batch_vectorize_images(image_folder, embed_folder)
+    # batch_vectorize_images(image_folder, embed_folder)
     batch_reindex_embeddings(embed_folder)
 
     exit(0)

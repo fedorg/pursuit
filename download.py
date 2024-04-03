@@ -224,7 +224,7 @@ def count_character_entries_in_db(char: str):
 def recall_furtrack_data_by_embedding_id(embedding_id: int):
     conn = sqlite3.connect("furtrack.db")
     c = conn.cursor()
-    c.execute("SELECT * FROM furtrack WHERE embedding_id=?", (embedding_id,))
+    c.execute("SELECT * FROM furtrack WHERE embedding_id=?", (str(embedding_id),))
     res = c.fetchone()
     conn.close()
     return row2dict(res)
