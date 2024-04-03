@@ -14,8 +14,8 @@ def get_url(url):
     return requests.get(
         url,
         cookies={
-            "cf_chl_3": "b3eff072548bedf",
-            "cf_clearance": "P1A3oWfv9ME6IVwHdZVkSYgECpc2CctKTR9KX55zboU-1712087739-1.0.1.1-2uP9FvKM8PbcGFr4v26UhwMIjp2dPXfZ.jeVh8AwQc89c6_Q0HS9ErFRBwoTmb8WerfA.UPkLBEgPL8LWGTHAg",
+            "cf_chl_3": "61e6c8731e33040",
+            "cf_clearance": "FkiDuQ_1uR97vNeNGfgnkGCN1LdpbkFBl.rGD_YlHwM-1712176234-1.0.1.1-7EVLvjYJz1iZcdDXdvSG2Vi3ry2FVl3S2yvZDL7dxEVAlJk_P.Lte4mGouWyIl4tFasG9N5PpH4acZapmqAQsw",
         },
         headers={
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
@@ -277,16 +277,74 @@ def batch_download_images(post_ids: Iterable[int], image_folder: str, batch_size
         download_images(pairs, image_folder)
 
 
-if __name__ == "__main__":
+def get_recent_posts(page=0):
+    print(f"Getting recents page {page}")
+    url = "https://solar.furtrack.com/get/all"
+    if page:
+        url += f"/{page}"
+    j = get_url(url).json()
+    return [p["postId"] for p in j["posts"]]
+
+
+def get_character_posts(char: str):
+    # https://solar.furtrack.com/get/index/1:placid
+
+    url = f"https://solar.furtrack.com/get/index/1:{char}"
+    j = get_url(url).json()
+    # sort by newest first
+    return sorted([p["postId"] for p in j["posts"]], reverse=True)
+
+
+def download_character_list():
+    # https://solar.furtrack.com/get/tags/all
+    url = "https://solar.furtrack.com/get/tags/all"
+    r = get_url(url)
+    if r.status_code != 200:
+        print(r.url)
+        print(r.text)
+        exit(-1)
+    j = r.json()
+    tags = j["tags"]
+    char_tags = [
+        t["tagName"].removeprefix("1:")
+        for t in tags
+        if t.get("tagName", "").startswith("1:")
+    ]
+    return char_tags
+
+
+def download_character_posts(char: str, image_folder: str, batch_size: int):
+    post_ids = get_character_posts(char)
+    download_posts(post_ids, image_folder, batch_size)
+
+
+def download_all_characters(image_folder: str, batch_size: int):
+    char_tags = download_character_list()
+    print(f"Downloading {len(char_tags)} characters...")
     import random
 
     random.seed(42)
-    num_samples = 40000
-    print(f"Sampling {num_samples} posts")
-    post_ids = (i for i in random.sample(range(549557), num_samples))
+    random.shuffle(char_tags)
+    for char in char_tags:
+        print(f"Downloading {char}")
+        download_character_posts(char, image_folder, batch_size)
+
+
+if __name__ == "__main__":
+    # import random
+
+    # random.seed(42)
+    # num_samples = 40000
+    # print(f"Sampling {num_samples} posts")
+    # post_ids = (i for i in random.sample(range(549557), num_samples))
+    from itertools import chain
+
+    num_pages = 10000
+    post_ids = chain.from_iterable(get_recent_posts(page) for page in range(num_pages))
 
     create_table()
     # print(recall_furtrack_data_by_id("537727"))
     # print(recall_furtrack_data_by_id("2"))
-    download_posts(post_ids, "furtrack_images", batch_size=40)
+    download_all_characters("furtrack_images", batch_size=40)
+    # download_posts(post_ids, "furtrack_images", batch_size=40)
     # batch_download_images(post_ids, "furtrack_images", batch_size=40)
