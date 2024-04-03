@@ -318,12 +318,18 @@ def download_character_list():
     return char_tags
 
 
-def download_character_posts(char: str, image_folder: str, batch_size: int):
+def ingest_character_posts(
+    char: str, image_folder: str, indexing: bool, batch_size: int
+):
     post_ids = get_character_post_ids(char)
     download_posts(post_ids, image_folder, batch_size)
+    if indexing:
+        metas = [recall_furtrack_data_by_id(str(p)) for p in post_ids]
+        metas = [m for m in metas if m and m["url"] and m["char"]]
+        ingest_posts([int(m["post_id"]) for m in metas], image_folder, "embeddings")
 
 
-def download_all_characters(image_folder: str, batch_size: int):
+def download_all_characters(image_folder: str, batch_size: int, indexing: bool = False):
     char_tags = download_character_list()
     print(f"Downloading {len(char_tags)} characters...")
 
@@ -331,7 +337,7 @@ def download_all_characters(image_folder: str, batch_size: int):
     random.shuffle(char_tags)
     for i, char in enumerate(char_tags):
         print(f"Downloading character ({i}/{len(char_tags)}): {char}")
-        download_character_posts(char, image_folder, batch_size)
+        ingest_character_posts(char, image_folder, indexing, batch_size)
 
 
 def ingest_posts(post_ids: list[int], image_folder: str, embed_folder: str):
@@ -346,6 +352,7 @@ def ingest_posts(post_ids: list[int], image_folder: str, embed_folder: str):
 
 
 if __name__ == "__main__":
+    from time import sleep
     # import random
 
     # random.seed(42)
@@ -360,6 +367,8 @@ if __name__ == "__main__":
     create_table()
     # print(recall_furtrack_data_by_id("537727"))
     # print(recall_furtrack_data_by_id("2"))
-    download_all_characters("furtrack_images", batch_size=40)
+    while True:
+        download_all_characters("furtrack_images", batch_size=40)
+        sleep(1)
     # download_posts(post_ids, "furtrack_images", batch_size=40)
     # batch_download_images(post_ids, "furtrack_images", batch_size=40)
